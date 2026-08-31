@@ -1,0 +1,47 @@
+
+
+services:
+  # Database - MongoDB
+  mongodb:
+    image: mongo:latest
+    container_name: bugbaar-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: bugbaar
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - bugbaar-network
+
+  # Vector Database - Qdrant
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: bugbaar-qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - bugbaar-network
+
+  # Cache & Task Queue - Redis
+  redis:
+    image: redis:alpine
+    container_name: bugbaar-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - bugbaar-network
+
+volumes:
+  mongo_data:
+  qdrant_data:
+
+networks:
+  bugbaar-network:
+    driver: bridge
