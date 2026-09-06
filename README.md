@@ -50,7 +50,7 @@ bugbaar-engine/
    ```
 3. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirement.txt
    ```
 4. Copy `.env.example` to `.env` and fill in your API keys:
    ```
