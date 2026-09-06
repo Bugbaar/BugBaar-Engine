@@ -90,7 +90,7 @@ export class TextChunker implements ITextChunker {
       documentName: document.title,
       source: document.source,
       pageNumber: document.metadata?.pageNumber,
-      createdAt: document.metadata?.createdAt ?? new Date().toISOString(),
+      createdAt: document.metadata?.createdAt,
       ...(document.metadata ?? {}),
     };
 

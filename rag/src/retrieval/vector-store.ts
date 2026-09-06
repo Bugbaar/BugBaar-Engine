@@ -207,6 +207,16 @@ export class InMemoryVectorStore implements VectorStore {
       );
     }
 
+    // Validate every query-vector element is a finite number
+    for (let i = 0; i < queryVector.length; i++) {
+      const val = queryVector[i];
+      if (typeof val !== 'number' || !Number.isFinite(val)) {
+        throw new Error(
+          `Query vector contains non-finite value at index ${i}: ${val}.`
+        );
+      }
+    }
+
     if (this.records.size === 0) {
       return [];
     }

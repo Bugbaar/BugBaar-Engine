@@ -237,4 +237,33 @@ describe('InMemoryVectorStore', () => {
     // Ensure store is still empty
     assert.equal(await store.count(), 0);
   });
+
+  it('should reject non-finite query vector values such as NaN and Infinity in search', async () => {
+    const store = new InMemoryVectorStore(3);
+    await store.addVectors([
+      {
+        id: 'c1',
+        chunk: createDummyChunk('c1', 'doc1', 'Search validation test'),
+        vector: [1, 0, 0],
+      },
+    ]);
+
+    // Query vector with NaN
+    await assert.rejects(
+      () => store.search([1, Number.NaN, 0], 5),
+      /Query vector contains non-finite value at index 1: NaN/
+    );
+
+    // Query vector with Infinity
+    await assert.rejects(
+      () => store.search([Number.POSITIVE_INFINITY, 0, 0], 5),
+      /Query vector contains non-finite value at index 0: Infinity/
+    );
+
+    // Query vector with -Infinity
+    await assert.rejects(
+      () => store.search([0, 0, Number.NEGATIVE_INFINITY], 5),
+      /Query vector contains non-finite value at index 2: -Infinity/
+    );
+  });
 });

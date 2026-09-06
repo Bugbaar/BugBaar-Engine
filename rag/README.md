@@ -82,7 +82,7 @@ const result = await pipeline.retrieveContext(
 );
 
 console.log('Query Safe:', result.safety.isSafe);
-console.log('Top Retrived Chunks:', result.chunks.length);
+console.log('Top Retrieved Chunks:', result.chunks.length);
 console.log('Formatted Context Block:\n', result.formattedContext);
 ```
 

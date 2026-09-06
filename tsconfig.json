@@ -14,11 +14,11 @@
     "types": ["node"]
   },
   "include": [
-    "rag/src/**/*.ts",
-    "rag/tests/**/*.ts"
+    "rag/src/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "rag/tests"
   ]
 }

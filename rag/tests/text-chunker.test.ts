@@ -207,4 +207,47 @@ describe('TextChunker', () => {
       }
     }
   });
+
+  it('should produce deterministic metadata on repeated chunking without injecting arbitrary timestamps', () => {
+    const chunker = new TextChunker({ chunkSize: 30, chunkOverlap: 5 });
+
+    const docWithoutCreatedAt: Document = {
+      id: 'doc_determ',
+      title: 'Deterministic Guide',
+      source: 'docs/determ.md',
+      content: 'This document does not provide a createdAt timestamp in its metadata.',
+      metadata: {
+        pageNumber: 1,
+        category: 'architecture',
+      },
+    };
+
+    const run1 = chunker.chunkDocument(docWithoutCreatedAt);
+    const run2 = chunker.chunkDocument(docWithoutCreatedAt);
+
+    assert.ok(run1.length > 1);
+    assert.deepEqual(run1, run2);
+
+    for (const chunk of run1) {
+      assert.equal(chunk.metadata.createdAt, undefined);
+      assert.equal(chunk.metadata.category, 'architecture');
+      assert.equal(chunk.pageNumber, 1);
+      assert.equal(chunk.documentName, 'Deterministic Guide');
+    }
+
+    const explicitDate = '2026-01-01T00:00:00.000Z';
+    const docWithCreatedAt: Document = {
+      id: 'doc_with_date',
+      title: 'Dated Guide',
+      content: 'Content with explicit createdAt timestamp provided by caller.',
+      metadata: {
+        createdAt: explicitDate,
+      },
+    };
+
+    const chunksWithDate = chunker.chunkDocument(docWithCreatedAt);
+    for (const chunk of chunksWithDate) {
+      assert.equal(chunk.metadata.createdAt, explicitDate);
+    }
+  });
 });
