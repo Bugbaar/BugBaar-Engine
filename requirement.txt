@@ -1,0 +1,11 @@
+langchain-core
+langchain-openai
+langchain-community
+langchain-text-splitters
+langgraph
+pypdf
+faiss-cpu
+duckduckgo-search
+ddgs
+requests
+python-dotenv
