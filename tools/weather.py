@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 def get_weather(city: str) -> dict:
     """Fetch the current weather for a given city name."""
     url = f"https://wttr.in/{city}?format=j1"
-    data = requests.get(url).json()
+    data = requests.get(url , timeout=10).json()
     current = data["current_condition"][0]
     return {
         "city": city,

@@ -34,8 +34,8 @@ bugbaar-engine/
 ├── workflows/
 │   └── graph.py          # StateGraph assembly + compiled workflow
 ├── api/
-│   └── main.py           # entry point / run loop
-├── requirements.txt
+│   └── mainonly.py           # entry point / run loop
+├── requirement.txt
 └── .env.example
 ```
 
@@ -63,7 +63,7 @@ bugbaar-engine/
 Run as a module from the project root (not as a direct file path), so relative imports resolve correctly:
 
 ```bash
-python -m api.main
+python -m api.mainonly
 ```
 
 You'll get an interactive chat loop. Example prompts to try:
