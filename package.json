@@ -1,0 +1,29 @@
+{
+  "name": "bugbaar-engine",
+  "version": "0.1.0",
+  "description": "Open-source infrastructure for AI agents, workflow automation, and intelligent systems.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx rag/src/index.ts",
+    "test": "tsx --test rag/tests/**/*.test.ts"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "rag",
+    "retrieval",
+    "llm"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
