@@ -77,4 +77,52 @@ describe('RuleBasedInjectionDetector', () => {
     assert.equal(result.riskScore, 0);
     assert.deepEqual(result.flaggedPatterns, []);
   });
+
+  it('should prevent stateful RegExp reuse bugs with global and sticky flags across repeated calls', () => {
+    // Custom rule with global (/g) and case-insensitive (/i) flags
+    const globalRule = {
+      id: 'global-threat-token',
+      name: 'Global Threat Rule',
+      pattern: /secret_override_token/gi,
+      weight: 0.9,
+    };
+
+    // Custom rule with sticky (/y) flag
+    const stickyRule = {
+      id: 'sticky-tag',
+      name: 'Sticky Tag Rule',
+      pattern: /ALERT/y,
+      weight: 0.8,
+    };
+
+    const detectorWithCustom = new RuleBasedInjectionDetector(0.4, [globalRule, stickyRule]);
+
+    const testQueryGlobal = 'Prefix test containing secret_override_token in the middle.';
+    const testQuerySticky = 'ALERT at start of prompt';
+
+    // Repeated queries must yield consistent results across multiple consecutive calls
+    for (let i = 0; i < 5; i++) {
+      const res1 = detectorWithCustom.check(testQueryGlobal);
+      assert.equal(
+        res1.isSafe,
+        false,
+        `Call ${i + 1} for global regex should flag query as unsafe`
+      );
+      assert.ok(
+        res1.flaggedPatterns.includes('Global Threat Rule'),
+        `Call ${i + 1} should include Global Threat Rule`
+      );
+
+      const res2 = detectorWithCustom.check(testQuerySticky);
+      assert.equal(
+        res2.isSafe,
+        false,
+        `Call ${i + 1} for sticky regex should flag query as unsafe`
+      );
+      assert.ok(
+        res2.flaggedPatterns.includes('Sticky Tag Rule'),
+        `Call ${i + 1} should include Sticky Tag Rule`
+      );
+    }
+  });
 });

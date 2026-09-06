@@ -144,4 +144,97 @@ describe('InMemoryVectorStore', () => {
     assert.equal(deletedSingle, true);
     assert.equal(await store.count(), 0);
   });
+
+  it('should enforce dimension established by first inserted vector when no dimension is configured', async () => {
+    const store = new InMemoryVectorStore(); // no dimension configured
+    assert.equal(store.dimension, undefined);
+
+    await store.addVectors([
+      {
+        id: 'c1',
+        chunk: createDummyChunk('c1', 'doc1', 'First record establishing dim 4'),
+        vector: [1, 2, 3, 4],
+      },
+    ]);
+    assert.equal(store.dimension, 4);
+
+    // Reject second record with mismatched dimension (3 instead of 4)
+    await assert.rejects(
+      () =>
+        store.addVectors([
+          {
+            id: 'c2',
+            chunk: createDummyChunk('c2', 'doc1', 'Mismatched dim record'),
+            vector: [1, 2, 3],
+          },
+        ]),
+      /Vector dimension mismatch for record c2: expected 4, got 3/
+    );
+
+    // Reject within the same batch
+    await assert.rejects(
+      () => {
+        const store2 = new InMemoryVectorStore();
+        return store2.addVectors([
+          {
+            id: 'b1',
+            chunk: createDummyChunk('b1', 'doc1', 'Batch 1'),
+            vector: [1, 2],
+          },
+          {
+            id: 'b2',
+            chunk: createDummyChunk('b2', 'doc1', 'Batch 2'),
+            vector: [1, 2, 3],
+          },
+        ]);
+      },
+      /Vector dimension mismatch for record b2: expected 2, got 3/
+    );
+  });
+
+  it('should reject non-finite vector values such as NaN and Infinity before storing', async () => {
+    const store = new InMemoryVectorStore(3);
+
+    // Vector with NaN
+    await assert.rejects(
+      () =>
+        store.addVectors([
+          {
+            id: 'nan_rec',
+            chunk: createDummyChunk('nan_rec', 'doc1', 'NaN test'),
+            vector: [1, Number.NaN, 0],
+          },
+        ]),
+      /Vector record nan_rec contains non-finite value at index 1/
+    );
+
+    // Vector with Infinity
+    await assert.rejects(
+      () =>
+        store.addVectors([
+          {
+            id: 'inf_rec',
+            chunk: createDummyChunk('inf_rec', 'doc1', 'Infinity test'),
+            vector: [Number.POSITIVE_INFINITY, 0, 0],
+          },
+        ]),
+      /Vector record inf_rec contains non-finite value at index 0/
+    );
+
+    // Vector with -Infinity
+    await assert.rejects(
+      () =>
+        store.addVectors([
+          {
+            id: 'neg_inf_rec',
+            chunk: createDummyChunk('neg_inf_rec', 'doc1', '-Infinity test'),
+            vector: [0, 0, Number.NEGATIVE_INFINITY],
+          },
+        ]),
+      /Vector record neg_inf_rec contains non-finite value at index 2/
+    );
+
+    // Ensure store is still empty
+    assert.equal(await store.count(), 0);
+  });
 });

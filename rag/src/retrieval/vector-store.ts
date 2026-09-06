@@ -117,7 +117,16 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  */
 export class InMemoryVectorStore implements VectorStore {
   private records: Map<string, VectorRecord> = new Map();
-  readonly dimension?: number;
+  private readonly configuredDimension?: number;
+  private establishedDimension?: number;
+
+  /**
+   * Expected dimensionality for vectors stored in this store.
+   * Returns configured dimension if provided, otherwise the dimension established by the first inserted vector.
+   */
+  get dimension(): number | undefined {
+    return this.configuredDimension ?? this.establishedDimension;
+  }
 
   /**
    * @param dimension - Optional expected vector dimension to enforce for all stored and searched vectors
@@ -127,15 +136,18 @@ export class InMemoryVectorStore implements VectorStore {
       if (!Number.isInteger(dimension) || dimension <= 0) {
         throw new Error(`Invalid vector store dimension: ${dimension}. Must be a positive integer.`);
       }
-      this.dimension = dimension;
+      this.configuredDimension = dimension;
     }
   }
 
   /**
    * Adds or updates records in the vector store.
    * Validates vector dimensions against expected dimension or existing records.
+   * Rejects non-finite values (NaN, Infinity) and inconsistent dimensions.
    */
   public async addVectors(records: VectorRecord[]): Promise<void> {
+    let expectedDimension = this.configuredDimension ?? this.establishedDimension;
+
     for (const record of records) {
       if (!record.id) {
         throw new Error('Vector record must have a non-empty id.');
@@ -144,13 +156,31 @@ export class InMemoryVectorStore implements VectorStore {
         throw new Error(`Vector record ${record.id} must have a numeric vector array.`);
       }
 
-      // Check configured dimension
-      if (this.dimension !== undefined && record.vector.length !== this.dimension) {
-        throw new Error(
-          `Vector dimension mismatch for record ${record.id}: expected ${this.dimension}, got ${record.vector.length}.`
-        );
+      // Reject non-finite values (NaN, Infinity, -Infinity)
+      for (let i = 0; i < record.vector.length; i++) {
+        const val = record.vector[i];
+        if (typeof val !== 'number' || !Number.isFinite(val)) {
+          throw new Error(
+            `Vector record ${record.id} contains non-finite value at index ${i}: ${val}.`
+          );
+        }
       }
 
+      // Enforce dimension consistency
+      if (expectedDimension === undefined) {
+        if (record.vector.length <= 0) {
+          throw new Error(`Vector record ${record.id} must have a positive vector dimension.`);
+        }
+        expectedDimension = record.vector.length;
+      } else if (record.vector.length !== expectedDimension) {
+        throw new Error(
+          `Vector dimension mismatch for record ${record.id}: expected ${expectedDimension}, got ${record.vector.length}.`
+        );
+      }
+    }
+
+    this.establishedDimension = expectedDimension;
+    for (const record of records) {
       this.records.set(record.id, record);
     }
   }
@@ -219,6 +249,9 @@ export class InMemoryVectorStore implements VectorStore {
         deletedCount++;
       }
     }
+    if (this.records.size === 0) {
+      this.establishedDimension = undefined;
+    }
     return deletedCount;
   }
 
@@ -226,7 +259,11 @@ export class InMemoryVectorStore implements VectorStore {
    * Deletes a single chunk by chunk ID.
    */
   public async deleteChunk(chunkId: string): Promise<boolean> {
-    return this.records.delete(chunkId);
+    const deleted = this.records.delete(chunkId);
+    if (this.records.size === 0) {
+      this.establishedDimension = undefined;
+    }
+    return deleted;
   }
 
   /**
@@ -234,6 +271,7 @@ export class InMemoryVectorStore implements VectorStore {
    */
   public async clear(): Promise<void> {
     this.records.clear();
+    this.establishedDimension = undefined;
   }
 
   /**

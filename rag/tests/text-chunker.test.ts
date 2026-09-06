@@ -140,7 +140,7 @@ describe('TextChunker', () => {
     }
   });
 
-  it('should handle unicode text and surrogate pairs in character chunking deterministically', () => {
+  it('should handle unicode text and surrogate pairs in character chunking deterministically without splitting surrogates', () => {
     const chunker = new TextChunker({
       chunkSize: 6,
       chunkOverlap: 2,
@@ -154,5 +154,57 @@ describe('TextChunker', () => {
     // Deterministic reproduction
     const chunksSecondPass = chunker.chunkText(text, 'unicode_doc');
     assert.deepEqual(chunks, chunksSecondPass);
+
+    // Regex matching any unpaired UTF-16 surrogate (lone high surrogate or lone low surrogate)
+    const unpairedSurrogatePattern = /(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])/;
+
+    for (const chunk of chunks) {
+      // Verify no unpaired surrogates exist in the chunk content
+      assert.equal(
+        unpairedSurrogatePattern.test(chunk.content),
+        false,
+        `Chunk "${chunk.content}" contains an unpaired surrogate`
+      );
+      if (typeof (chunk.content as any).isWellFormed === 'function') {
+        assert.equal((chunk.content as any).isWellFormed(), true);
+      }
+      // Accurate offsets in original JavaScript string
+      assert.equal(
+        chunk.content,
+        text.substring(chunk.metadata.startCharIndex!, chunk.metadata.endCharIndex!)
+      );
+    }
+  });
+
+  it('should not split surrogate pairs across chunk boundaries where code-unit slicing would', () => {
+    // "A" (1 code unit), "🚀" (2 code units: \uD83D\uDE80), "B" (1 code unit)
+    // In raw code units, "A🚀B" is length 4. A 2-unit chunk would slice "A" + \uD83D (unpaired high surrogate).
+    // In code points, "A🚀B" has 3 code points. With chunkSize: 2, chunkOverlap: 0:
+    // Chunk 0: code points "A" and "🚀" -> content "A🚀", offsets [0, 3]
+    // Chunk 1: code point "B" -> content "B", offsets [3, 4]
+    const chunker = new TextChunker({
+      chunkSize: 2,
+      chunkOverlap: 0,
+      strategy: 'character',
+    });
+    const text = 'A🚀B';
+    const chunks = chunker.chunkText(text, 'boundary_doc');
+
+    assert.equal(chunks.length, 2);
+    assert.equal(chunks[0]?.content, 'A🚀');
+    assert.equal(chunks[0]?.metadata.startCharIndex, 0);
+    assert.equal(chunks[0]?.metadata.endCharIndex, 3);
+
+    assert.equal(chunks[1]?.content, 'B');
+    assert.equal(chunks[1]?.metadata.startCharIndex, 3);
+    assert.equal(chunks[1]?.metadata.endCharIndex, 4);
+
+    const unpairedSurrogatePattern = /(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])/;
+    for (const chunk of chunks) {
+      assert.equal(unpairedSurrogatePattern.test(chunk.content), false);
+      if (typeof (chunk.content as any).isWellFormed === 'function') {
+        assert.equal((chunk.content as any).isWellFormed(), true);
+      }
+    }
   });
 });

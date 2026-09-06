@@ -108,4 +108,62 @@ describe('RagPipeline', () => {
     assert.ok(deleted > 0);
     assert.equal(await pipeline.vectorStore.count(), 0);
   });
+
+  it('should throw error when embedding provider returns fewer embeddings than chunks (short)', async () => {
+    const mockEmbeddingProvider = {
+      providerName: 'mock-short',
+      dimension: 64,
+      embedQuery: async () => new Array(64).fill(0.1),
+      embedDocuments: async () => {
+        // Return 1 embedding when 3 chunks are produced
+        return [new Array(64).fill(0.1)];
+      },
+    };
+    const vectorStore = new InMemoryVectorStore(64);
+    const pipeline = new RagPipeline({
+      embeddingProvider: mockEmbeddingProvider,
+      vectorStore,
+      chunker: { chunkSize: 20, chunkOverlap: 0 },
+    });
+
+    await assert.rejects(
+      () =>
+        pipeline.ingestDocument({
+          id: 'doc_short',
+          content: 'First chunk content. Second chunk content.',
+        }),
+      /Embedding batch cardinality mismatch: expected 3 embeddings for 3 chunks, but received 1\./
+    );
+  });
+
+  it('should throw error when embedding provider returns more embeddings than chunks (surplus)', async () => {
+    const mockEmbeddingProvider = {
+      providerName: 'mock-surplus',
+      dimension: 64,
+      embedQuery: async () => new Array(64).fill(0.1),
+      embedDocuments: async () => {
+        // Return 3 embeddings when 1 chunk is produced
+        return [
+          new Array(64).fill(0.1),
+          new Array(64).fill(0.2),
+          new Array(64).fill(0.3),
+        ];
+      },
+    };
+    const vectorStore = new InMemoryVectorStore(64);
+    const pipeline = new RagPipeline({
+      embeddingProvider: mockEmbeddingProvider,
+      vectorStore,
+      chunker: { chunkSize: 500, chunkOverlap: 0 },
+    });
+
+    await assert.rejects(
+      () =>
+        pipeline.ingestDocument({
+          id: 'doc_surplus',
+          content: 'Single chunk text content.',
+        }),
+      /Embedding batch cardinality mismatch: expected 1 embeddings for 1 chunks, but received 3\./
+    );
+  });
 });

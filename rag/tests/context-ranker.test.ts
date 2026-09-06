@@ -40,6 +40,22 @@ describe('DefaultContextRanker', () => {
     assert.equal(ranked[1]?.chunk.id, 'c3');
   });
 
+  it('should ensure lower-scored duplicate appearing first does not replace higher-scored occurrence', async () => {
+    const ranker = new DefaultContextRanker({ deduplicate: true });
+
+    // Lower-scored duplicate appears FIRST in the candidate list
+    const chunks: ScoredChunk[] = [
+      createScoredChunk('c_low', 'docB', 1, 'duplicate text content', 0.60),
+      createScoredChunk('c_high', 'docA', 0, 'DUPLICATE text CONTENT  ', 0.95),
+      createScoredChunk('c_mid', 'docC', 2, 'duplicate TEXT content', 0.75),
+    ];
+
+    const ranked = await ranker.rank(chunks, 'query');
+    assert.equal(ranked.length, 1);
+    assert.equal(ranked[0]?.chunk.id, 'c_high');
+    assert.equal(ranked[0]?.score, 0.95);
+  });
+
   it('should deterministically break score ties using documentId and chunkIndex', async () => {
     const ranker = new DefaultContextRanker();
 

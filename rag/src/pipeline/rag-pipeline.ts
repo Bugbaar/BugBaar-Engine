@@ -127,6 +127,12 @@ export class RagPipeline {
     const chunkTexts = chunks.map((c) => c.content);
     const embeddings = await this.embeddingProvider.embedDocuments(chunkTexts);
 
+    if (embeddings.length !== chunks.length) {
+      throw new Error(
+        `Embedding batch cardinality mismatch: expected ${chunks.length} embeddings for ${chunks.length} chunks, but received ${embeddings.length}.`
+      );
+    }
+
     const records: VectorRecord[] = chunks.map((chunk, index) => {
       const vector = embeddings[index];
       if (!vector) {

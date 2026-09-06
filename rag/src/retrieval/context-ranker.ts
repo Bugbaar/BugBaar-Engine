@@ -67,7 +67,18 @@ export class DefaultContextRanker implements ContextRanker {
       processed = processed.filter((item) => item.score >= opts.minScore!);
     }
 
-    // Deduplicate if enabled
+    // Deterministic sort: score desc, then documentId asc, then chunkIndex asc
+    processed.sort((a, b) => {
+      if (Math.abs(b.score - a.score) > 1e-6) {
+        return b.score - a.score;
+      }
+      if (a.chunk.documentId !== b.chunk.documentId) {
+        return a.chunk.documentId.localeCompare(b.chunk.documentId);
+      }
+      return a.chunk.chunkIndex - b.chunk.chunkIndex;
+    });
+
+    // Deduplicate after deterministic ranking so the highest-scoring duplicate is retained
     if (opts.deduplicate) {
       const seenContents = new Set<string>();
       const deduplicated: ScoredChunk[] = [];
@@ -81,17 +92,6 @@ export class DefaultContextRanker implements ContextRanker {
       }
       processed = deduplicated;
     }
-
-    // Deterministic sort: score desc, then documentId asc, then chunkIndex asc
-    processed.sort((a, b) => {
-      if (Math.abs(b.score - a.score) > 1e-6) {
-        return b.score - a.score;
-      }
-      if (a.chunk.documentId !== b.chunk.documentId) {
-        return a.chunk.documentId.localeCompare(b.chunk.documentId);
-      }
-      return a.chunk.chunkIndex - b.chunk.chunkIndex;
-    });
 
     if (opts.maxResults !== undefined && opts.maxResults > 0) {
       return processed.slice(0, opts.maxResults);

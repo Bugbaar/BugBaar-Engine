@@ -159,4 +159,57 @@ describe('Retriever', () => {
     assert.equal(results.length, 2);
     assert.notEqual(results[0]?.chunk.content, results[1]?.chunk.content);
   });
+
+  it('should normalize fractional, zero, negative, and NaN bounds without throwing errors', async () => {
+    const embeddingProvider = new DeterministicEmbeddingProvider(32);
+    const vectorStore = new InMemoryVectorStore(32);
+    const retriever = new Retriever(embeddingProvider, vectorStore);
+
+    const chunk1: DocumentChunk = {
+      id: 'c1',
+      documentId: 'doc1',
+      content: 'Sample text chunk for normalization testing.',
+      chunkIndex: 0,
+      metadata: { documentId: 'doc1', chunkIndex: 0 },
+    };
+    const chunk2: DocumentChunk = {
+      id: 'c2',
+      documentId: 'doc2',
+      content: 'Second text chunk for bounds validation.',
+      chunkIndex: 0,
+      metadata: { documentId: 'doc2', chunkIndex: 0 },
+    };
+
+    const [v1, v2] = await embeddingProvider.embedDocuments([chunk1.content, chunk2.content]);
+    await vectorStore.addVectors([
+      { id: 'c1', chunk: chunk1, vector: v1! },
+      { id: 'c2', chunk: chunk2, vector: v2! },
+    ]);
+
+    // Fractional topK and candidateMultiplier
+    const fracResults = await retriever.retrieve('test query', {
+      topK: 1.8, // Should normalize to 1
+      candidateMultiplier: 2.5, // Should normalize to 2
+    });
+    assert.equal(fracResults.length, 1);
+
+    // Zero / negative topK should clamp to positive lower bound (1)
+    const zeroResults = await retriever.retrieve('test query', {
+      topK: 0,
+    });
+    assert.equal(zeroResults.length, 1);
+
+    const negResults = await retriever.retrieve('test query', {
+      topK: -5,
+      candidateMultiplier: -2,
+    });
+    assert.equal(negResults.length, 1);
+
+    // NaN / invalid inputs should fallback to defaults
+    const nanResults = await retriever.retrieve('test query', {
+      topK: Number.NaN,
+      candidateMultiplier: Number.NaN,
+    });
+    assert.ok(nanResults.length > 0);
+  });
 });

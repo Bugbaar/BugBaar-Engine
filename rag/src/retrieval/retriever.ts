@@ -30,6 +30,13 @@ export interface IRetriever {
   retrieve(query: string, options?: RetrievalOptions): Promise<ScoredChunk[]>;
 }
 
+function normalizePositiveInt(value: number | undefined, defaultValue: number): number {
+  if (value === undefined || typeof value !== 'number' || !Number.isFinite(value)) {
+    return defaultValue;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
 /**
  * Modular Retriever that coordinates embedding generation, vector similarity search, and context ranking.
  */
@@ -64,9 +71,9 @@ export class Retriever implements IRetriever {
       return [];
     }
 
-    const topK = options?.topK ?? 5;
+    const topK = normalizePositiveInt(options?.topK, 5);
     const similarityThreshold = options?.similarityThreshold;
-    const candidateMultiplier = Math.max(1, options?.candidateMultiplier ?? 2);
+    const candidateMultiplier = normalizePositiveInt(options?.candidateMultiplier, 2);
     const candidateLimit = topK * candidateMultiplier;
     const ranker = options?.ranker ?? this.defaultRanker;
 

@@ -124,21 +124,36 @@ export class TextChunker implements ITextChunker {
     documentId: string,
     baseMetadata: Partial<ChunkMetadata>
   ): DocumentChunk[] {
+    const codePoints = Array.from(text);
+    if (codePoints.length === 0) {
+      return [];
+    }
+
+    const codePointOffsets: number[] = new Array(codePoints.length + 1);
+    let currentOffset = 0;
+    for (let i = 0; i < codePoints.length; i++) {
+      codePointOffsets[i] = currentOffset;
+      currentOffset += codePoints[i]!.length;
+    }
+    codePointOffsets[codePoints.length] = text.length;
+
     const chunks: DocumentChunk[] = [];
     const step = this.chunkSize - this.chunkOverlap;
     let chunkIndex = 0;
 
-    for (let start = 0; start < text.length; start += step) {
-      const end = Math.min(start + this.chunkSize, text.length);
-      const chunkText = text.substring(start, end);
+    for (let start = 0; start < codePoints.length; start += step) {
+      const end = Math.min(start + this.chunkSize, codePoints.length);
+      const startCharIndex = codePointOffsets[start]!;
+      const endCharIndex = codePointOffsets[end]!;
+      const chunkText = text.substring(startCharIndex, endCharIndex);
 
       const chunkId = `${documentId}_chunk_${chunkIndex}`;
       const metadata: ChunkMetadata = {
         ...baseMetadata,
         documentId,
         chunkIndex,
-        startCharIndex: start,
-        endCharIndex: end,
+        startCharIndex,
+        endCharIndex,
       };
 
       chunks.push({
@@ -155,7 +170,7 @@ export class TextChunker implements ITextChunker {
       chunkIndex++;
 
       // If we reached the end of the text, break
-      if (end >= text.length) {
+      if (end >= codePoints.length) {
         break;
       }
     }

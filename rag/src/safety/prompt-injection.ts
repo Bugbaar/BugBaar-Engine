@@ -26,7 +26,7 @@ export interface PromptInjectionDetector {
   check(text: string): Promise<PromptInjectionResult> | PromptInjectionResult;
 }
 
-interface HeuristicRule {
+export interface HeuristicRule {
   id: string;
   name: string;
   pattern: RegExp;
@@ -103,11 +103,13 @@ export class RuleBasedInjectionDetector implements PromptInjectionDetector {
     let accumulatedScore = 0;
 
     for (const rule of this.rules) {
+      rule.pattern.lastIndex = 0;
       if (rule.pattern.test(text)) {
         flagged.push(rule.name);
         maxWeight = Math.max(maxWeight, rule.weight);
         accumulatedScore += rule.weight;
       }
+      rule.pattern.lastIndex = 0;
     }
 
     // Combine max weight with a diminishing return for multiple matches
