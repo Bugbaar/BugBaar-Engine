@@ -15,6 +15,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["agents/**/*", "examples/**/*"],
+  "include": ["index.ts", "agents/**/*", "examples/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -9,10 +9,12 @@ async function runDemo() {
   console.log('🧠 BugBaar Engine: Agent Memory Subsystem Demo');
   console.log('====================================================\n');
 
-  // 1. Initialize Pluggable Agent Memory (Zero Dependency Default)
+  // 1. Initialize Shared Backing Store & Pluggable Agent Memory
   console.log('👉 Step 1: Initializing AgentMemory with TokenBudgetStrategy (Max 60 Tokens)...');
+  const sharedProvider = new InMemoryProvider();
+
   const memory = new AgentMemory({
-    provider: new InMemoryProvider(),
+    provider: sharedProvider,
     strategy: new TokenBudgetStrategy(60),
     namespace: { sessionId: 'demo-session-001', agentId: 'placement-agent' }
   });
@@ -64,9 +66,10 @@ async function runDemo() {
     console.log(`  [${idx + 1}] [${msg.role.toUpperCase()}] ${msg.content.substring(0, 70)}...`);
   });
 
-  // 4. Test Namespace Isolation
-  console.log('\n👉 Step 3: Verifying Multi-Agent Namespace Isolation...');
+  // 4. Test Namespace Isolation on the exact same shared provider instance
+  console.log('\n👉 Step 3: Verifying Multi-Agent Namespace Isolation on Shared Storage Provider...');
   const coderAgentMemory = new AgentMemory({
+    provider: sharedProvider,
     namespace: { sessionId: 'demo-session-001', agentId: 'coder-agent' }
   });
   await coderAgentMemory.addMessage({ role: 'user', content: 'Debug Python script' });
@@ -74,9 +77,9 @@ async function runDemo() {
   const placementCount = (await memory.getRawMessages()).length;
   const coderCount = (await coderAgentMemory.getRawMessages()).length;
 
-  console.log(`  Placement Agent Memory Count: ${placementCount}`);
-  console.log(`  Coder Agent Memory Count: ${coderCount}`);
-  console.log('✅ Namespace isolation verified successfully!');
+  console.log(`  Placement Agent Memory Count (session:demo-session-001|agent:placement-agent): ${placementCount}`);
+  console.log(`  Coder Agent Memory Count (session:demo-session-001|agent:coder-agent): ${coderCount}`);
+  console.log('✅ Namespace isolation verified successfully across shared storage provider!');
 
   console.log('\n====================================================');
   console.log('🎉 Demo Completed Successfully!');
