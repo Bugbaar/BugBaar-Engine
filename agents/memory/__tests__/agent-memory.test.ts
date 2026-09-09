@@ -64,12 +64,13 @@ describe('AgentMemory Subsystem Integration Tests', () => {
     await memory.addMessage({ role: 'user', content: 'Very long user prompt '.repeat(4) });
 
     const formatted = await memory.getFormattedMessages({ maxTokens: 40 });
-    // Verify no orphaned tool message exists without its assistant tool call
-    const hasToolResult = formatted.some(m => m.role === 'tool');
-    const hasAssistantCall = formatted.some(m => m.role === 'assistant' && m.toolCalls?.length);
-
-    if (hasToolResult) {
-      expect(hasAssistantCall).toBe(true);
+    const toolResults = formatted.filter(m => m.role === 'tool');
+    expect(toolResults.some(t => t.toolCallId === 'call_old')).toBe(false);
+    for (const tool of toolResults) {
+      const parent = formatted.find(
+        m => m.role === 'assistant' && m.toolCalls?.some(tc => tc.id === tool.toolCallId)
+      );
+      expect(parent).toBeDefined();
     }
   });
 
@@ -168,10 +169,15 @@ describe('AgentMemory Subsystem Integration Tests', () => {
     expect(formatted.length).toBeGreaterThan(0);
   });
 
-  test('should handle invalid or empty message inputs gracefully without throwing', async () => {
+  test('should reject invalid or empty message inputs and omit them from storage', async () => {
     // @ts-ignore
-    await expect(memory.addMessage(null)).resolves.not.toThrow();
+    await memory.addMessage(null);
     // @ts-ignore
-    await expect(memory.addMessage({})).resolves.not.toThrow();
+    await memory.addMessage({});
+    // @ts-ignore
+    await memory.addMessage({ role: 'invalid_role', content: 'test' });
+
+    const stored = await memory.getRawMessages();
+    expect(stored).toHaveLength(0);
   });
 });

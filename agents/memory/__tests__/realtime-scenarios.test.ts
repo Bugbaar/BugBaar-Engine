@@ -83,11 +83,14 @@ describe('Real-Time Agent Workflows & Fault Injection Scenarios', () => {
     const formatted = await memory.getFormattedMessages();
     expect(formatted.length).toBeGreaterThan(0);
     
-    // Verify tool call pair integrity: every tool message must have its corresponding assistant call
-    const toolMsg = formatted.find(m => m.role === 'tool' && m.toolCallId === 'call_step2');
-    if (toolMsg) {
-      const assistantCallMsg = formatted.find(m => m.role === 'assistant' && m.toolCalls?.some(c => c.id === 'call_step2'));
-      expect(assistantCallMsg).toBeDefined();
+    // Verify tool call pair integrity: all tool messages must have their corresponding assistant call present
+    const toolMessages = formatted.filter(m => m.role === 'tool');
+    expect(toolMessages.length).toBeGreaterThan(0);
+    for (const tool of toolMessages) {
+      const parent = formatted.find(
+        m => m.role === 'assistant' && m.toolCalls?.some(c => c.id === tool.toolCallId)
+      );
+      expect(parent).toBeDefined();
     }
   });
 
@@ -133,10 +136,9 @@ describe('Real-Time Agent Workflows & Fault Injection Scenarios', () => {
       namespace: { sessionId: 'fault-session', agentId: 'fault-agent' }
     });
 
-    // Attempt writing when Redis is down -> Should NOT throw
-    await expect(memory.addMessage({ role: 'user', content: 'Critical message during outage' })).resolves.not.toThrow();
+    // Write during provider outage should be stored in fallback and retrievable
+    await memory.addMessage({ role: 'user', content: 'Critical message during outage' });
 
-    // Retrieve messages during outage -> Should gracefully retrieve from internal fallback memory
     const messages = await memory.getRawMessages();
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe('Critical message during outage');

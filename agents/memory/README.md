@@ -1,153 +1,132 @@
-# 🧠 BugBaar Engine: Agent Memory & Context Manager Subsystem (`agents/memory`)
+# Agent Memory & Context Manager Subsystem (`agents/memory`)
 
-> **A zero-dependency by default, pluggable, type-safe Agent Memory & Context State Manager designed for autonomous AI agents, multi-agent networks, and LLM orchestration pipelines.**
-
----
-
-## 📌 Executive Summary
-
-Building production-ready AI agents requires managing conversational history, context window constraints, and multi-agent state. Standard implementations often suffer from:
-1. **Context Window Overflow**: Passing raw message arrays to LLMs eventually exceeds token boundaries.
-2. **Infrastructure Lock-In**: Forcing heavy vector DBs or external Redis instances breaks rapid local development and quick prototyping.
-3. **Multi-Agent Memory Pollution**: Multiple agents operating in a shared session overwrite each other's scratchpads.
-4. **Tool Call Truncation Crashes**: Pruning history can leave orphaned `tool` result messages without their matching `assistant` tool-call prompt, triggering 400 Bad Request errors from LLM APIs.
-
-The **BugBaar Engine Memory Subsystem** solves these challenges by providing a **decoupled, plug-and-play facade**. It allows any agent or workflow to store, scope, prune, and retrieve context without locking the application into a specific storage driver or LLM provider.
+A pluggable, TypeScript-based memory and context window management subsystem for BugBaar Engine. It provides decoupled storage backends, context window pruning strategies, and multi-agent namespace isolation.
 
 ---
 
-## 🏗️ Architecture Overview
+## Overview
 
-The subsystem follows the **Provider & Strategy Design Patterns**, separating storage drivers from context window pruning logic.
+Managing agent conversational history across LLM orchestration loops presents recurring technical challenges:
+1. **Context Window Limits**: Message history eventually exceeds model token limits.
+2. **Infrastructure Coupling**: Requiring external databases for local development creates unnecessary friction.
+3. **Multi-Agent State Collision**: Concurrent agents in a shared session can overwrite or leak state across execution loops.
+4. **Tool Call Invariants**: LLM APIs require tool results to directly correspond to an assistant tool-call message. Naive truncation that prunes the assistant call while leaving the tool result produces an invalid message sequence (HTTP 400).
+
+This subsystem addresses these issues by decoupling storage drivers from context pruning algorithms using the Provider and Strategy design patterns.
+
+---
+
+## Architecture
+
+The subsystem separates persistence from context preparation:
 
 ```mermaid
 graph TD
-    A[Host Agent / LLM Execution Loop] -->|addMessage / getFormattedMessages| B[AgentMemory Facade]
-    
-    subgraph Memory Subsystem
-        B --> C{Namespace Scope Manager}
-        C -->|SessionId + AgentId| D[Pruning Strategy Engine]
-        
-        subgraph Pruning Strategies
-            D -->|Count Ceiling| E[SlidingWindowStrategy]
-            D -->|Token Ceiling| F[TokenBudgetStrategy]
-            D -->|LLM Background| G[SummaryHybridStrategy]
-        end
-        
-        D --> H[Memory Storage Provider]
-        
-        subgraph Storage Providers
-            H -->|Default / Zero-Config| I[InMemoryProvider]
-            H -->|Distributed Redis| J[RedisProvider]
-        end
-    end
-    
-    H -->|Token-Optimized Messages| A
+    A[Agent / Execution Loop] -->|addMessage / getFormattedMessages| B[AgentMemory Facade]
+    B --> C[Namespace Scope Manager]
+    C -->|SessionId + AgentId| D[Context Strategy Engine]
+    D -->|SlidingWindow / TokenBudget / SummaryHybrid| E[Pruning Pipeline]
+    E --> F[Storage Provider]
+    F -->|InMemoryProvider / RedisProvider| G[(Backing Store)]
 ```
 
 ---
 
-## 📂 Folder Structure
+## Directory Structure
 
 ```text
 agents/memory/
 ├── interfaces/
-│   ├── message.interface.ts     # BaseMessage models & Zod runtime schemas
+│   ├── message.interface.ts     # BaseMessage models & Zod schemas
 │   ├── provider.interface.ts    # IMemoryProvider contract & MemoryNamespace definition
 │   └── strategy.interface.ts    # IContextStrategy contract & StrategyOptions
 ├── providers/
-│   ├── in-memory.provider.ts    # Default zero-dependency storage provider
-│   └── redis.provider.ts        # Distributed Redis provider adapter with fallback
+│   ├── in-memory.provider.ts    # Default in-memory store
+│   └── redis.provider.ts        # Redis store adapter with fallback
 ├── strategies/
 │   ├── sliding-window.strategy.ts # Count-based message window pruning
-│   ├── token-budget.strategy.ts   # Token-ceiling pruning + Tool Pair Sanitization
-│   └── summary-hybrid.strategy.ts # Lazy context condensation + recent turns
+│   ├── token-budget.strategy.ts   # Token-budget pruning + tool call sanitization
+│   └── summary-hybrid.strategy.ts # Context condensation + recent message retention
 ├── utils/
-│   └── token-counter.util.ts    # Fast lightweight token estimator
-├── agent-memory.ts              # Main facade class with 4-tier fallback handling
-├── index.ts                     # Public SDK module export barrel
+│   └── token-counter.util.ts    # Character-to-token estimator
+├── agent-memory.ts              # Primary facade with fallback handling
+├── index.ts                     # Public barrel export
 └── __tests__/
-    ├── agent-memory.test.ts     # Core integration tests (9 passing tests)
-    └── realtime-scenarios.test.ts # Advanced real-time & fault injection tests (5 passing tests)
+    ├── agent-memory.test.ts     # Integration and contract tests
+    └── realtime-scenarios.test.ts # ReAct chains, concurrency, and fault tolerance tests
 ```
 
 ---
 
-## 🧩 Module Responsibilities
+## Core Components
 
-| Module / Layer | Primary Responsibility | Key Files |
+| Component | Responsibility | Key Files |
 | :--- | :--- | :--- |
-| **Interfaces** | Defines strongly typed schemas (`User`, `Assistant`, `System`, `ToolResult`), Zod validation models, and core provider/strategy contracts. | `interfaces/*.ts` |
-| **Providers** | Manages raw persistence. Defaults to an ultra-fast `InMemoryProvider`. Offers a `RedisProvider` with automatic fallback. | `providers/*.ts` |
-| **Strategies** | Executes context window pruning algorithms before delivering messages to LLMs. Ensures token ceiling compliance and tool-call pair integrity. | `strategies/*.ts` |
-| **Utils** | Estimates token overhead for raw text, JSON metadata, and tool call objects without requiring heavy native binaries. | `utils/token-counter.util.ts` |
-| **Facade (`AgentMemory`)** | Serves as the primary public API. Orchestrates namespaces, strategy options, and executes 4-tier emergency fallback logic. | `agent-memory.ts` |
+| **Interfaces** | Strongly typed message models (`User`, `Assistant`, `System`, `Tool`), Zod validation schemas, and provider/strategy contracts. | `interfaces/*.ts` |
+| **Providers** | Raw message persistence. Includes `InMemoryProvider` (default) and `RedisProvider` (for distributed deployments). | `providers/*.ts` |
+| **Strategies** | Algorithms for formatting and pruning messages before LLM invocation. Enforces token bounds and tool call pair integrity. | `strategies/*.ts` |
+| **Utils** | Fast heuristic token estimation without native binary dependencies. | `utils/token-counter.util.ts` |
+| **Facade (`AgentMemory`)** | Public API managing namespace routing, strategy execution, and fallback handling. | `agent-memory.ts` |
 
 ---
 
-## 🔥 Key Technical Features
+## Technical Features
 
-### 1. Tool Call Pair Atomicity & Sanitization
-LLM APIs (OpenAI, Anthropic) require that a `role: 'tool'` response **must** follow an `assistant` message containing matching `toolCalls`. If pruning removes the `assistant` call, sending an orphaned `tool` message causes an API HTTP 400 crash.
-* **Our Solution**: Both `TokenBudgetStrategy` and `SlidingWindowStrategy` include automatic `sanitizeToolCallPairs()` filtering to safely strip orphaned tool results when their parent call gets truncated.
+### 1. Tool Call Pair Integrity
+OpenAI and Anthropic APIs mandate that every `role: 'tool'` message must be preceded by an `assistant` message containing the matching `toolCallId`. Both `TokenBudgetStrategy` and `SlidingWindowStrategy` run `sanitizeToolCallPairs()` to remove orphaned tool outputs if their parent call was pruned.
 
 ### 2. Dual-Namespace Scoping (`sessionId` + `agentId`)
-Prevents memory contamination in multi-agent networks:
-* **Private Agent Memory**: Scope by `{ sessionId: 'user-1', agentId: 'coder' }`.
-* **Shared Team Memory**: Omit `agentId` to create a common workspace buffer (`{ sessionId: 'user-1' }`).
+Prevents cross-agent memory contamination:
+* **Private Agent Memory**: Use `{ sessionId: 'user-1', agentId: 'planner' }`.
+* **Shared Session Memory**: Omit `agentId` to read/write to the common session buffer (`{ sessionId: 'user-1' }`).
+* All keys are encoded (`session:<id>|agent:<id>`) to prevent delimiter collisions.
 
-### 3. 4-Tier Emergency Fallback Matrix
-Guarantees **99.99% agent execution uptime**. Memory operations (writing, pruning, reading) **never** throw unhandled exceptions:
-* **Tier 1 (LLM Summarizer Failure)**: Degrades to sliding window context truncation.
-* **Tier 2 (Storage Outage)**: Automatically falls back to internal `InMemoryProvider`.
-* **Tier 3 (Malformed Payload)**: Intercepts and sanitizes invalid schemas via Zod.
-* **Tier 4 (Token Emergency Overflow)**: Emergency hard-truncates history to fit context limits.
+### 3. Graceful Fallback Handling
+Memory operations are structured to prevent runtime exceptions from breaking host agent loops:
+* **Storage Outage**: If `RedisProvider` encounters a connection failure, writes route to an internal fallback store and are reconciled upon read.
+* **Malformed Payloads**: Invalid message schemas caught by Zod are logged and omitted without crashing.
+* **Pruning Failure**: If a custom summarizer throws an error, the system falls back to `TokenBudgetStrategy`.
 
 ---
 
-## 💻 Developer Quickstart & Code Examples
+## Usage Examples
 
-### Example 1: Zero-Config Setup (3 Lines of Code)
+### 1. Default Setup
 ```typescript
 import { AgentMemory } from './agents/memory';
 
-// Initialize with zero configuration (InMemory + TokenBudgetStrategy by default)
 const memory = new AgentMemory();
 
-// Add messages cleanly
 await memory.addMessage({ role: 'user', content: 'What is the placement drive status?' });
-await memory.addMessage({ role: 'assistant', content: 'Drives are currently active.' });
+await memory.addMessage({ role: 'assistant', content: 'Drives are active.' });
 
-// Retrieve token-optimized context ready for LLM invocation
 const messages = await memory.getFormattedMessages();
 ```
 
-### Example 2: Handling Tool Calls & Results
+### 2. Tool Calls and Tool Results
 ```typescript
 import { AgentMemory } from './agents/memory';
 
 const memory = new AgentMemory();
 
-// Save assistant tool call
 await memory.addMessage({
   role: 'assistant',
-  content: 'Executing search...',
+  content: 'Running database query...',
   toolCalls: [{
-    id: 'call_abc123',
-    name: 'searchPlacementDB',
-    arguments: '{"department":"CS"}'
+    id: 'call_101',
+    name: 'queryPlacementDB',
+    arguments: '{"status":"open"}'
   }]
 });
 
-// Save tool result
 await memory.addMessage({
   role: 'tool',
-  toolCallId: 'call_abc123',
-  content: '{"matches":5}'
+  toolCallId: 'call_101',
+  content: '{"results":["CompanyA","CompanyB"]}'
 });
 ```
 
-### Example 3: Production Setup (Token Budget + Redis + Multi-Agent Isolation)
+### 3. Redis Provider with Custom Token Budget
 ```typescript
 import { 
   AgentMemory, 
@@ -159,40 +138,37 @@ const memory = new AgentMemory({
   provider: new RedisProvider({ host: 'localhost', port: 6379 }),
   strategy: new TokenBudgetStrategy(4000),
   namespace: {
-    sessionId: 'session-xyz-2026',
-    agentId: 'researcher-agent-01'
+    sessionId: 'session-2026',
+    agentId: 'researcher-agent'
   }
 });
 ```
 
 ---
 
-## 🧪 Testing & Verification
+## Verification & Testing
 
-The subsystem includes a comprehensive test suite covering **14 unit and integration tests** across 2 test suites.
+The test suite contains 14 automated tests covering message contracts, token bounding, tool call sanitization, concurrent multi-agent operations, and storage fault recovery.
 
-### Running Unit & Integration Tests
 ```bash
+# Run unit and integration tests
 npm test
-```
 
-### Running Interactive Demos
-```bash
-# Basic Usage Demo
+# Run single-agent demonstration
 npm run demo
 
-# Advanced Multi-Agent Real-Time Simulation Demo
+# Run multi-agent simulation demonstration
 npm run demo:advanced
 ```
 
 ---
 
-## 🛠️ Extending the Subsystem
+## Extending the Subsystem
 
-### Adding a Custom Storage Provider
+### Custom Storage Provider
 Implement the `IMemoryProvider` interface:
 ```typescript
-import { IMemoryProvider, MemoryNamespace, BaseMessage } from './interfaces';
+import { IMemoryProvider, MemoryNamespace, BaseMessage } from './agents/memory';
 
 export class CustomDatabaseProvider implements IMemoryProvider {
   async saveMessage(namespace: MemoryNamespace, message: BaseMessage): Promise<void> { /* ... */ }
@@ -201,22 +177,14 @@ export class CustomDatabaseProvider implements IMemoryProvider {
 }
 ```
 
-### Adding a Custom Pruning Strategy
+### Custom Pruning Strategy
 Implement the `IContextStrategy` interface:
 ```typescript
-import { IContextStrategy, StrategyOptions, BaseMessage } from './interfaces';
+import { IContextStrategy, StrategyOptions, BaseMessage } from './agents/memory';
 
 export class CustomPruningStrategy implements IContextStrategy {
   async prune(messages: BaseMessage[], options?: StrategyOptions): Promise<BaseMessage[]> {
-    // Custom pruning logic
     return messages;
   }
 }
 ```
-
----
-
-## 🤝 Contributing
-
-Built with ❤️ by the **BugBaar Community**.  
-Contributions, bug reports, and feature requests are welcome!
