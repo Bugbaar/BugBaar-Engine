@@ -9,6 +9,9 @@ export interface RedisOptions {
   client?: any; // Generic duck-typing for ioredis / node-redis
 }
 
+/**
+ * Distributed Redis storage provider for agent memory with automatic in-memory failover.
+ */
 export class RedisProvider implements IMemoryProvider {
   private fallbackProvider: InMemoryProvider;
   private client: any;
@@ -25,11 +28,22 @@ export class RedisProvider implements IMemoryProvider {
     }
   }
 
+  /**
+   * Generates a prefixed, collision-free key for Redis storage.
+   * @param namespace The memory namespace.
+   * @returns Formatted Redis key.
+   */
   private getStorageKey(namespace: MemoryNamespace): string {
-    const agentScope = namespace.agentId ? `:${namespace.agentId}` : '';
-    return `${this.keyPrefix}${namespace.sessionId}${agentScope}`;
+    const safeSession = encodeURIComponent(namespace.sessionId);
+    const safeAgent = namespace.agentId ? encodeURIComponent(namespace.agentId) : '__default__';
+    return `${this.keyPrefix}session:${safeSession}|agent:${safeAgent}`;
   }
 
+  /**
+   * Saves a message to Redis, falling back to local memory if Redis is unavailable.
+   * @param namespace The target memory namespace.
+   * @param message The message payload.
+   */
   public async saveMessage(namespace: MemoryNamespace, message: BaseMessage): Promise<void> {
     if (!this.isConnected || !this.client) {
       return this.fallbackProvider.saveMessage(namespace, message);
@@ -40,7 +54,7 @@ export class RedisProvider implements IMemoryProvider {
       const enrichedMessage: BaseMessage = {
         ...message,
         id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        createdAt: message.createdAt || Date.now()
+        createdAt: message.createdAt ?? Date.now()
       };
       await this.client.rpush(key, JSON.stringify(enrichedMessage));
     } catch (error) {
@@ -49,6 +63,11 @@ export class RedisProvider implements IMemoryProvider {
     }
   }
 
+  /**
+   * Retrieves messages from Redis, reconciling any uncommitted fallback messages.
+   * @param namespace The target memory namespace.
+   * @returns Array of stored BaseMessage objects.
+   */
   public async getMessages(namespace: MemoryNamespace): Promise<BaseMessage[]> {
     if (!this.isConnected || !this.client) {
       return this.fallbackProvider.getMessages(namespace);
@@ -57,23 +76,38 @@ export class RedisProvider implements IMemoryProvider {
     try {
       const key = this.getStorageKey(namespace);
       const rawMessages: string[] = await this.client.lrange(key, 0, -1);
-      return rawMessages.map(item => JSON.parse(item));
+      const redisMessages: BaseMessage[] = rawMessages.map(item => JSON.parse(item));
+      const fallbackMessages = await this.fallbackProvider.getMessages(namespace);
+
+      if (fallbackMessages.length === 0) {
+        return redisMessages;
+      }
+
+      // Reconcile and deduplicate unconfirmed fallback messages
+      const mergedMap = new Map<string, BaseMessage>();
+      for (const msg of [...redisMessages, ...fallbackMessages]) {
+        if (msg.id) mergedMap.set(msg.id, msg);
+      }
+      return Array.from(mergedMap.values()).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
     } catch (error) {
       console.warn('[RedisProvider Warning] Redis get failed. Falling back to InMemoryProvider:', error);
       return this.fallbackProvider.getMessages(namespace);
     }
   }
 
+  /**
+   * Clears messages from Redis and the fallback memory store.
+   * @param namespace The target memory namespace.
+   */
   public async clear(namespace: MemoryNamespace): Promise<void> {
-    if (!this.isConnected || !this.client) {
-      return this.fallbackProvider.clear(namespace);
-    }
-
     try {
-      const key = this.getStorageKey(namespace);
-      await this.client.del(key);
+      if (this.isConnected && this.client) {
+        const key = this.getStorageKey(namespace);
+        await this.client.del(key);
+      }
     } catch (error) {
-      console.warn('[RedisProvider Warning] Redis clear failed. Falling back to InMemoryProvider:', error);
+      console.warn('[RedisProvider Warning] Redis clear failed:', error);
+    } finally {
       await this.fallbackProvider.clear(namespace);
     }
   }

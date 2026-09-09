@@ -44,8 +44,7 @@ export class SummaryHybridStrategy implements IContextStrategy {
       if (customSummarizer) {
         summaryText = await customSummarizer(olderMessages);
       } else {
-        // Default heuristic summary fallback (zero LLM dependency)
-        summaryText = `[Conversation Summary: ${olderMessages.length} prior messages condensed. Topics discussed include key user queries and prior tool interactions.]`;
+        summaryText = `[Summary: ${olderMessages.length} prior messages condensed]`;
       }
 
       const summaryMessage: BaseMessage = {
@@ -54,7 +53,10 @@ export class SummaryHybridStrategy implements IContextStrategy {
         metadata: { isSummary: true, originalMessageCount: olderMessages.length }
       };
 
-      return [...systemMessages, summaryMessage, ...recentMessages];
+      return this.fallbackStrategy.prune(
+        [...systemMessages, summaryMessage, ...recentMessages],
+        options
+      );
     } catch (error) {
       console.warn('[SummaryHybridStrategy Warning] Summarizer execution failed. Falling back to TokenBudgetStrategy:', error);
       return this.fallbackStrategy.prune(messages, options);
