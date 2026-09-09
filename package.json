@@ -1,0 +1,25 @@
+{
+  "name": "bugbaar-agent-engine",
+  "version": "1.0.0",
+  "description": "BugBaar Engine - Modular Agent Builder, ReAct Controller, Telemetry & Task Worker",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "ts-node test/agent.test.ts"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestration",
+    "telemetry",
+    "bugbaar"
+  ],
+  "author": "BugBaar Contributor",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.2"
+  }
+}
