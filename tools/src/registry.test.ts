@@ -323,3 +323,131 @@ test("a response with no body yields an empty string", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+/*
+ * Redirect responses have to be released, not just abandoned.
+ *
+ * Each hop's body was left unread when the next fetch overwrote the variable,
+ * so its socket stayed pinned until GC — once per hop, and on every early
+ * throw too. The stub below builds each response from a stream that records
+ * its own cancellation, so these assert what happened to the body rather than
+ * which function was called.
+ */
+
+interface TrackedHop {
+  status: number;
+  location?: string;
+}
+
+/** Serves a redirect chain whose responses report when they are cancelled. */
+function stubTrackedChain(hops: TrackedHop[]): { cancelled: number[]; restore: () => void } {
+  const cancelled: number[] = [];
+  const realFetch = globalThis.fetch;
+  let index = 0;
+
+  globalThis.fetch = async () => {
+    const hop = hops[Math.min(index, hops.length - 1)]!;
+    const position = index++;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("hop body"));
+      },
+      /*
+       * Closed only once a reader actually pulls, so an unread body is still
+       * open and therefore still cancellable — which is what an in-flight HTTP
+       * response looks like. Closing in start() would finish the stream before
+       * anyone could cancel it, and cancel() on a finished stream never
+       * reaches the underlying source.
+       */
+      pull(controller) {
+        controller.close();
+      },
+      cancel() {
+        cancelled.push(position);
+      },
+    });
+
+    return new Response(stream, {
+      status: hop.status,
+      headers: hop.location ? { location: hop.location } : {},
+    });
+  };
+
+  return { cancelled, restore: () => (globalThis.fetch = realFetch) };
+}
+
+test("a followed redirect releases the response it is leaving behind", async () => {
+  const stub = stubTrackedChain([
+    { status: 302, location: "https://second.example/next" },
+    { status: 302, location: "https://allowed.example/final" },
+    { status: 200 },
+  ]);
+
+  try {
+    const result = await httpTool.execute({ url: "https://allowed.example/start" }, context);
+
+    // Both redirect hops released; the final response was not.
+    assert.deepEqual(stub.cancelled, [0, 1], "every discarded redirect must be cancelled");
+    assert.equal(stub.cancelled.includes(2), false, "the final response must not be cancelled");
+    assert.equal((result as { body: string }).body, "hop body", "and its body still reaches the caller");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("an invalid Location releases the response before throwing", async () => {
+  // A scheme URL() cannot resolve, so `new URL(location, target)` throws.
+  const stub = stubTrackedChain([{ status: 302, location: "http://[oops" }, { status: 200 }]);
+
+  try {
+    await assert.rejects(httpTool.execute({ url: "https://allowed.example/start" }, context), /is not a valid URL/);
+    assert.deepEqual(stub.cancelled, [0], "the redirect body must be released before the throw");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a blocked redirect target releases the response before throwing", async () => {
+  const stub = stubTrackedChain([
+    { status: 302, location: "http://169.254.169.254/latest/meta-data/" },
+    { status: 200 },
+  ]);
+
+  try {
+    await assert.rejects(
+      httpTool.execute({ url: "https://allowed.example/start" }, context),
+      /is not on the allowlist/,
+    );
+    assert.deepEqual(stub.cancelled, [0], "the redirect body must be released even when the hop is rejected");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("exceeding the redirect limit releases the last response before throwing", async () => {
+  const stub = stubTrackedChain([{ status: 302, location: "https://allowed.example/again" }]);
+
+  try {
+    await assert.rejects(httpTool.execute({ url: "https://allowed.example/start" }, context), /Exceeded 5 redirects/);
+
+    // Five followed hops plus the sixth that trips the limit: all released.
+    assert.deepEqual(stub.cancelled, [0, 1, 2, 3, 4, 5]);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a 3xx without a Location is returned rather than released", async () => {
+  const stub = stubTrackedChain([{ status: 302 }]);
+
+  try {
+    const result = await httpTool.execute({ url: "https://allowed.example/start" }, context);
+
+    assert.deepEqual(stub.cancelled, [], "a response that becomes the result must not be cancelled");
+    assert.equal((result as { status: number }).status, 302);
+    assert.equal((result as { body: string }).body, "hop body");
+  } finally {
+    stub.restore();
+  }
+});

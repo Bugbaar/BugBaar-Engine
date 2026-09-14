@@ -108,10 +108,12 @@ export function createHttpTool(options: HttpToolOptions): Tool<{ url: string; me
 
       for (let hop = 0; isRedirect(response); hop += 1) {
         if (hop >= MAX_REDIRECTS) {
+          await discard(response);
           throw new Error(`Exceeded ${MAX_REDIRECTS} redirects starting from "${url}"`);
         }
 
-        // A 3xx without a Location is not a redirect; return it as the result.
+        // A 3xx without a Location is not a redirect; return it as the result,
+        // body intact — readCappedBody below is what consumes it.
         const location = response.headers.get("location");
         if (!location) break;
 
@@ -121,8 +123,14 @@ export function createHttpTool(options: HttpToolOptions): Tool<{ url: string; me
           // the host that sent it rather than on the original URL.
           next = new URL(location, target);
         } catch {
+          await discard(response);
           throw new Error(`Redirect target "${location}" is not a valid URL`);
         }
+
+        // Nothing more is needed from this hop, and it is certain to be
+        // discarded now — whether assertAllowed rejects the target, the next
+        // fetch fails, or it succeeds and overwrites this response.
+        await discard(response);
 
         assertAllowed(next);
         target = next;
@@ -140,6 +148,20 @@ export function createHttpTool(options: HttpToolOptions): Tool<{ url: string; me
 
 function isRedirect(response: Response): boolean {
   return REDIRECT_STATUS.has(response.status);
+}
+
+/**
+ * Throws away a redirect response's body.
+ *
+ * A 3xx whose body is never read holds its socket until GC gets to it, so a
+ * chain of hops — or a run that throws partway through one — leaks a
+ * connection per redirect. Only responses being discarded go through here; the
+ * final one is left for `readCappedBody`.
+ */
+async function discard(response: Response): Promise<void> {
+  // Optional chaining covers a bodyless 3xx; the catch covers a body that is
+  // already errored, which is not worth failing the request over.
+  await response.body?.cancel().catch(() => undefined);
 }
 
 /**
